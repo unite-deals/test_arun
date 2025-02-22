@@ -1,0 +1,8 @@
+rembg==2.0.56
+streamlit==1.33.0
+fitz
+opencv-headless
+pillow
+numpy
+matplotlib
+PyMuPDF
