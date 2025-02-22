@@ -14,7 +14,7 @@ ALLOWED_TYPES = ["pdf", "png", "jpg", "jpeg"]
 
 def setup_page():
     """Sets up the Streamlit page configuration and loads custom CSS."""
-    st.set_page_config(page_title="Slide Detection", page_icon="*")
+    st.set_page_config(page_title="Object Detection & Separation", page_icon="*")
     load_css()
     hide_streamlit_style()
 
@@ -128,7 +128,7 @@ def process_and_display_images(uploaded_files):
         st.warning("Please upload a file.")
         return
 
-    if not st.sidebar.button("Slide Detection"):
+    if not st.sidebar.button("Object Detection"):
         return
 
     if len(uploaded_files) > MAX_FILES:
