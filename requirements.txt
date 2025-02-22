@@ -1,7 +1,7 @@
 rembg==2.0.56
 streamlit==1.33.0
 fitz
-opencv-headless
+opencv-python-headless
 pillow
 numpy
 matplotlib
