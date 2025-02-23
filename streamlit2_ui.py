@@ -7,6 +7,7 @@ import uuid
 from PyPDF2 import PdfReader
 import cv2
 import numpy as np
+import fitz
 import matplotlib.pyplot as plt
 
 MAX_FILES = 5
@@ -128,7 +129,7 @@ def process_and_display_images(uploaded_files):
         st.warning("Please upload a file.")
         return
 
-    if not st.sidebar.button("Slide Detection by Arraytree "):
+    if not st.sidebar.button("Slide Detection by AI"):
         return
 
     if len(uploaded_files) > MAX_FILES:
@@ -138,12 +139,16 @@ def process_and_display_images(uploaded_files):
 
     with st.spinner("Detecting Slides..."):
         for uploaded_file in uploaded_files:
-            pdf = PdfReader(io.BytesIO(uploaded_file.read()))
-            page = pdf.pages[0]
-            image_data = page.images[0].data
-            original_image = Image.open(io.BytesIO(image_data)).convert("RGBA")
-            result_image = slide_detection(original_image)
-            results.append((original_image, result_image, uploaded_file.name))
+            doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
+            page = doc[0]
+            for img_index, img in enumerate(page.get_images(full=True)):
+                xref = img[0]  # Reference to the image
+                base_image = doc.extract_image(xref)
+                image_bytes = base_image["image"]
+                original_image = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+                result_image = slide_detection(original_image)
+                results.append((original_image, result_image, uploaded_file.name))
+                break  # Use only the first image per page
 
     for original, result, name in results:
         col1, col2 = st.columns(2)
@@ -156,7 +161,6 @@ def process_and_display_images(uploaded_files):
         download_zip(results)
     else:
         download_result(results[0])
-
 
 def slide_detection(original_image):
     """Removes the background from an image."""
