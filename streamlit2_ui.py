@@ -98,7 +98,7 @@ def display_header():
     header_html = """
     <div class="header glass">
         <img src="https://i.imgur.com/4UjxpFN.png" alt="Logo">
-        <h1>ArrayTreeSlide Detection Demo App</h1>
+        <h1> ArrayTree Slide Detection Demo App</h1>
     </div>
     """
     st.markdown(header_html, unsafe_allow_html=True)
@@ -118,7 +118,7 @@ def display_footer():
     """Displays a custom footer with neon deep green and bold contact information."""
     footer_html = """
     <div class="footer">
-        <p style="color: #39FF14; font-weight: bold;">Arraytree Demo App | Contact: info@arraytree.com</p>
+        <p style="color: #39FF14; font-weight: bold;">Arraytree Demo App | Contact: arraytree@gmail.com</p>
     </div>
     """
     st.markdown(footer_html, unsafe_allow_html=True)
