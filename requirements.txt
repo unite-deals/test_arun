@@ -1,6 +1,5 @@
 streamlit==1.33.0
 PyPDF2
-fitz
 opencv-python-headless
 pillow
 numpy
