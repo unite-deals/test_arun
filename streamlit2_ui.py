@@ -4,7 +4,7 @@ from pathlib import Path
 import streamlit as st
 from PIL import Image
 import uuid
-import fitz
+from PyPDF2 import PdfReader
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -14,7 +14,7 @@ ALLOWED_TYPES = ["pdf", "png", "jpg", "jpeg"]
 
 def setup_page():
     """Sets up the Streamlit page configuration and loads custom CSS."""
-    st.set_page_config(page_title="Object Detection & Separation", page_icon="*")
+    st.set_page_config(page_title="Arraytree Slide Detection", page_icon="*")
     load_css()
     hide_streamlit_style()
 
@@ -97,7 +97,7 @@ def display_header():
     header_html = """
     <div class="header glass">
         <img src="https://i.imgur.com/4UjxpFN.png" alt="Logo">
-        <h1>Slide Detection Demo App</h1>
+        <h1>ArrayTreeSlide Detection Demo App</h1>
     </div>
     """
     st.markdown(header_html, unsafe_allow_html=True)
@@ -117,7 +117,7 @@ def display_footer():
     """Displays a custom footer with neon deep green and bold contact information."""
     footer_html = """
     <div class="footer">
-        <p style="color: #39FF14; font-weight: bold;">Demo App | Contact: demo@example.com</p>
+        <p style="color: #39FF14; font-weight: bold;">Arraytree Demo App | Contact: info@arraytree.com</p>
     </div>
     """
     st.markdown(footer_html, unsafe_allow_html=True)
@@ -128,7 +128,7 @@ def process_and_display_images(uploaded_files):
         st.warning("Please upload a file.")
         return
 
-    if not st.sidebar.button("Object Detection"):
+    if not st.sidebar.button("Slide Detection by Arraytree "):
         return
 
     if len(uploaded_files) > MAX_FILES:
@@ -138,14 +138,13 @@ def process_and_display_images(uploaded_files):
 
     with st.spinner("Detecting Slides..."):
         for uploaded_file in uploaded_files:
-            doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
-            page = doc.load_page(0)
-            pix = page.get_pixmap()
-            images = pix.tobytes("png")
-            original_image = Image.open(io.BytesIO(images)).convert("RGBA")
+            pdf = PdfReader(io.BytesIO(uploaded_file.read()))
+            page = pdf.pages[0]
+            image_data = page.images[0].data
+            original_image = Image.open(io.BytesIO(image_data)).convert("RGBA")
             result_image = slide_detection(original_image)
             results.append((original_image, result_image, uploaded_file.name))
-            
+
     for original, result, name in results:
         col1, col2 = st.columns(2)
         with col1:
@@ -157,6 +156,7 @@ def process_and_display_images(uploaded_files):
         download_zip(results)
     else:
         download_result(results[0])
+
 
 def slide_detection(original_image):
     """Removes the background from an image."""
