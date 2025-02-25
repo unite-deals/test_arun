@@ -169,7 +169,8 @@ def slide_detection(original_image):
     retval, binary_image = cv2.threshold(gray_image, 210, 255, cv2.THRESH_BINARY)
     _, im_with_separated_blobs, stats, centroids = cv2.connectedComponentsWithStats(binary_image)
     ht, wd = binary_image.shape
-    if binary_image[ht-15][15] == 0:
+    #print(binary_image)
+    if binary_image[ht-100][100] == 0:
        inverted_image = cv2.bitwise_not(original_image_cv)
        inverted_gray_image = cv2.cvtColor(inverted_image, cv2.COLOR_RGB2GRAY)
     else:
@@ -182,34 +183,37 @@ def slide_detection(original_image):
     max_size = 1000
     valid_labels = np.where((stats[:, cv2.CC_STAT_AREA] >= min_size) & (stats[:, cv2.CC_STAT_AREA] <= max_size))[0]
 
-    blurred = cv2.GaussianBlur(inverted_gray_image, (9, 9), 2)
+    blurred = cv2.GaussianBlur(inverted_gray_image, (13,13), 11)
 
     # Detect circles using Hough Circle Transform
     circles = cv2.HoughCircles(
         blurred,
         cv2.HOUGH_GRADIENT,
         dp=1.2,
-        minDist=10,
+        minDist=20,
         param1=40,
-        param2=20,
-        minRadius=4,
-        maxRadius=14
+        param2=30,
+        minRadius=20,
+        maxRadius=50
     )
    
     output_image = original_image_cv.copy()
-    original_image_cv = cv2.cvtColor(original_image_cv, cv2.COLOR_RGB2BGR)
-        
+    original_image_cv = cv2.cvtColor(original_image_cv, cv2.COLOR_RGB2BGR) 
+    #print(circles)
+    h1, w1, r1 = original_image_cv.shape
     if circles is not None:
         circles = np.uint16(np.around(circles))
         for (x, y, r) in circles[0, :]:
             mask = np.zeros(output_image.shape[:2], dtype=np.uint8)
-            mean_color = cv2.mean(inverted_gray_image, mask=mask)
-            if mean_color[0] > 180:
-               if x < 200:
-                   centrss1.append((x, y))
-               else:
-                   centrss2.append((x, y))
-
+            cv2.circle(mask, (x, y), r, (255,), thickness=-1)
+            # Compute mean pixel color inside the circle
+            mean_color = cv2.mean(inverted_gray_image, mask=mask)  # Returns (B, G, R, Alpha)
+            if mean_color[0] > 200:
+                #cv2.circle(original_image_cv, (x, y), r, (255,), thickness=-1)
+                if x < w1/2:
+                    centrss1.append((x, y))
+                else:
+                    centrss2.append((x, y))
         circle_centers, approx_most_common_diff = slide_extract(centrss1, original_image_cv)
         xs = ys = 0
         for centr in circle_centers:        
@@ -219,16 +223,17 @@ def slide_detection(original_image):
             else:
                 xc, yc = centr
                 h = int((yc - ys) / 2)
-                if h <= int(approx_most_common_diff) + 6:             
-                    p11 = yc - h
-                    cv2.line(original_image_cv, (0, int(p11)), (300, int(p11)), (255, 0, 0), 2)
-                    xs, ys = xc, yc
-                else:  
-                    p11 = ys + int(approx_most_common_diff)
-                    cv2.line(original_image_cv, (0, int(p11)), (300, int(p11)), (255, 0, 0), 2)
-                    p11 = yc - int(approx_most_common_diff)
-                    cv2.line(original_image_cv, (0, int(p11)), (300, int(p11)), (255, 0, 0), 2)
-                    xs, ys = xc, yc
+                if h>30:
+                    if h <= int(approx_most_common_diff) + 6:             
+                        p11 = yc - h
+                        cv2.line(original_image_cv, (0, int(p11)), (int(w1/3), int(p11)), (255, 0, 0), 8)
+                        xs, ys = xc, yc
+                    else:  
+                        p11 = ys + int(approx_most_common_diff)
+                        cv2.line(original_image_cv, (0, int(p11)), (int(w1/3), int(p11)), (255, 0, 0), 8)
+                        p11 = yc - int(approx_most_common_diff)
+                        cv2.line(original_image_cv, (0, int(p11)), (int(w1/3), int(p11)), (255, 0, 0), 8)
+                        xs, ys = xc, yc
 
         circle_centers, approx_most_common_diff = slide_extract(centrss2, original_image_cv)
         xs = ys = 0
@@ -239,19 +244,19 @@ def slide_detection(original_image):
             else:
                 xc, yc = centr
                 h = int((yc - ys) / 2)
-                if h <= int(approx_most_common_diff) + 6:             
-                    p11 = yc - h
-                    pt2 = int(wd - 5)
-                    cv2.line(original_image_cv, (400, int(p11)), (pt2, int(p11)), (255, 0, 0), 2)
-                    xs, ys = xc, yc
-                else:  
-                    p11 = ys + int(approx_most_common_diff)
-                    pt2 = int(wd - 5)
-                    cv2.line(original_image_cv, (400, int(p11)), (pt2, int(p11)), (255, 0, 0), 2)
-                    p11 = yc - int(approx_most_common_diff)
-                    cv2.line(original_image_cv, (400, int(p11)), (pt2, int(p11)), (255, 0, 0), 2)
-                    xs, ys = xc, yc
-
+                if h>30:
+                    if h <= int(approx_most_common_diff) + 6:             
+                        p11 = yc - h
+                        pt2 = int(wd - 5)
+                        cv2.line(original_image_cv, (int(w1/2), int(p11)), (pt2, int(p11)), (0, 255, 0), 8)
+                        xs, ys = xc, yc
+                    else:  
+                        p11 = ys + int(approx_most_common_diff)
+                        pt2 = int(wd - 5)
+                        cv2.line(original_image_cv, (int(w1/2), int(p11)), (pt2, int(p11)), (0, 255, 0), 8)
+                        p11 = yc - int(approx_most_common_diff)
+                        cv2.line(original_image_cv, (int(w1/2), int(p11)), (pt2, int(p11)), (0, 255, 0), 8)
+                        xs, ys = xc, yc
     output_image = Image.fromarray(original_image_cv)
     return output_image
 
