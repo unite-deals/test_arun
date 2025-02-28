@@ -102,6 +102,11 @@ def display_header():
     </div>
     """
     st.markdown(header_html, unsafe_allow_html=True)
+    st.warning("⚠️ Enter your output file initial seq number below:")
+    user_input = st.text_input("Seq start number:")
+    if user_input:
+        st.success(f"Thank you!Check output folder once done")
+    return user_input
 
 def display_ui():
     """Displays the user interface for file upload and returns uploaded files."""
@@ -123,7 +128,8 @@ def display_footer():
     """
     st.markdown(footer_html, unsafe_allow_html=True)
 
-def process_and_display_images(uploaded_files):
+
+def process_and_display_images(uploaded_files, user_input):
     """Processes the uploaded files and displays the original and result images."""
     if not uploaded_files:
         st.warning("Please upload a file.")
@@ -146,7 +152,7 @@ def process_and_display_images(uploaded_files):
                 base_image = doc.extract_image(xref)
                 image_bytes = base_image["image"]
                 original_image = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
-                result_image = slide_detection(original_image)
+                result_image = slide_detection(original_image, user_input)
                 results.append((original_image, result_image, uploaded_file.name))
                 break  # Use only the first image per page
 
@@ -162,21 +168,41 @@ def process_and_display_images(uploaded_files):
     else:
         download_result(results[0])
 
-def slide_detection(original_image):
+def slide_detection(original_image, user_input):
     """Removes the background from an image."""
     original_image_cv = np.array(original_image)
     gray_image = cv2.cvtColor(original_image_cv, cv2.COLOR_RGB2GRAY)
-    retval, binary_image = cv2.threshold(gray_image, 210, 255, cv2.THRESH_BINARY)
+    retval, binary_image = cv2.threshold(gray_image, 50, 255, cv2.THRESH_BINARY)
     _, im_with_separated_blobs, stats, centroids = cv2.connectedComponentsWithStats(binary_image)
     ht, wd = binary_image.shape
     #print(binary_image)
+    flag = 0
     if binary_image[ht-100][100] == 0:
-       inverted_image = cv2.bitwise_not(original_image_cv)
-       inverted_gray_image = cv2.cvtColor(inverted_image, cv2.COLOR_RGB2GRAY)
+        inverted_image = cv2.bitwise_not(original_image_cv)
+        inverted_gray_image = cv2.cvtColor(inverted_image, cv2.COLOR_RGB2GRAY)
+        kernel = np.ones((11, 11), np.uint8) 
+        dil_image = cv2.dilate(binary_image, kernel, iterations=5)
+        flag = 1
     else:
         inverted_image = original_image_cv
         inverted_gray_image = gray_image
+        kernel = np.ones((11, 11), np.uint8) 
+        retval, binary_image = cv2.threshold(gray_image, 200, 255, cv2.THRESH_BINARY)
+        binary_image1 = 255 - binary_image
+        dil_image = cv2.dilate(binary_image1, kernel, iterations=5)
 
+    cropped = dil_image[int(ht/2-200):int(ht/2+200),:]  # Example cropping (adjust coordinates)
+    _, _, stats_dil, _ = cv2.connectedComponentsWithStats(cropped)
+    sorted_indices = np.argsort(stats_dil[:, 4])[::-1] 
+    st_col1 = stats_dil[sorted_indices[1],0]
+    end_col1 = stats_dil[sorted_indices[1],0] + stats_dil[sorted_indices[1],2]
+    st_col2 =  None
+    for i in sorted_indices:
+        if i < 2:
+            continue
+        elif stats_dil[sorted_indices[i],2] > 100 and (stats_dil[sorted_indices[i],0] > end_col1 or stats_dil[sorted_indices[i],0]+stats_dil[sorted_indices[i],2] < st_col1):
+            st_col2 = stats_dil[sorted_indices[i],0] 
+            end_col2 = stats_dil[sorted_indices[i],0]  + stats_dil[sorted_indices[i],2] 
     centrss1 = []
     centrss2 = []
     min_size = 20
@@ -216,6 +242,9 @@ def slide_detection(original_image):
                     centrss2.append((x, y))
         circle_centers, approx_most_common_diff = slide_extract(centrss1, original_image_cv)
         xs = ys = 0
+        ind = int(user_input)
+        p11 = 0
+        p11_bkp = 0
         for centr in circle_centers:        
             if xs == 0 and ys == 0:
                 xs, ys = centr
@@ -226,17 +255,26 @@ def slide_detection(original_image):
                 if h>30:
                     if h <= int(approx_most_common_diff) + 6:             
                         p11 = yc - h
+                        croppe = original_image_cv[int(p11_bkp):int(p11),st_col1:end_col1]
+                        p11_bkp = p11
+                        cv2.imwrite(f"fcomp_{ind}.jpg", croppe)
+                        ind = ind + 1
                         cv2.line(original_image_cv, (0, int(p11)), (int(w1/3), int(p11)), (255, 0, 0), 8)
                         xs, ys = xc, yc
                     else:  
                         p11 = ys + int(approx_most_common_diff)
                         cv2.line(original_image_cv, (0, int(p11)), (int(w1/3), int(p11)), (255, 0, 0), 8)
-                        p11 = yc - int(approx_most_common_diff)
-                        cv2.line(original_image_cv, (0, int(p11)), (int(w1/3), int(p11)), (255, 0, 0), 8)
+                        p12 = yc - int(approx_most_common_diff)
+                        croppe = original_image_cv[int(p11):int(p12),st_col1:end_col1]
+                        cv2.imwrite(f"fcomp_{ind}.jpg", croppe)
+                        ind = ind + 1
+                        cv2.line(original_image_cv, (0, int(p12)), (int(w1/3), int(p12)), (0, 0, 255), 8)
                         xs, ys = xc, yc
 
         circle_centers, approx_most_common_diff = slide_extract(centrss2, original_image_cv)
-        xs = ys = 0
+        xs = ys = 0        
+        p11 = 0
+        p11_bkp = 0
         for centr in circle_centers:        
             if xs == 0 and ys == 0:
                 xs, ys = centr
@@ -250,13 +288,23 @@ def slide_detection(original_image):
                         pt2 = int(wd - 5)
                         cv2.line(original_image_cv, (int(w1/2), int(p11)), (pt2, int(p11)), (0, 255, 0), 8)
                         xs, ys = xc, yc
+                        if st_col2 is not None:
+                            croppe = original_image_cv[int(p11_bkp):int(p11), st_col2:end_col2]
+                            p11_bkp = p11
+                            cv2.imwrite(f"bcomp_{ind}.jpg", croppe)
+                            ind = ind + 1
                     else:  
                         p11 = ys + int(approx_most_common_diff)
                         pt2 = int(wd - 5)
                         cv2.line(original_image_cv, (int(w1/2), int(p11)), (pt2, int(p11)), (0, 255, 0), 8)
-                        p11 = yc - int(approx_most_common_diff)
-                        cv2.line(original_image_cv, (int(w1/2), int(p11)), (pt2, int(p11)), (0, 255, 0), 8)
+                        p12 = yc - int(approx_most_common_diff)
+                        cv2.line(original_image_cv, (int(w1/2), int(p12)), (pt2, int(p12)), (0, 0, 255), 8)
                         xs, ys = xc, yc
+                        if st_col2 is not None:
+                            croppe = original_image_cv[ int(p11):int(p12),st_col2:end_col2]
+                            cv2.imwrite(f"bcomp_{ind}.jpg", croppe)
+                            ind = ind + 1
+
     output_image = Image.fromarray(original_image_cv)
     return output_image
 
@@ -303,9 +351,9 @@ def download_zip(images):
 def main():
     setup_page()
     initialize_session()
-    display_header()
+    user_input = display_header()
     uploaded_files = display_ui()
-    process_and_display_images(uploaded_files)
+    process_and_display_images(uploaded_files, user_input)
     display_footer()
 
 if __name__ == "__main__":
