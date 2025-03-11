@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 import fitz
 import matplotlib.pyplot as plt
+import shutil
 
 MAX_FILES = 5
 ALLOWED_TYPES = ["pdf", "png", "jpg", "jpeg"]
@@ -154,6 +155,226 @@ def process_and_display_images(uploaded_files, user_input):
                 original_image = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
                 result_image = slide_detection(original_image, user_input)
                 results.append((original_image, result_image, uploaded_file.name))
+                zip_path = slide_detection_cutout(original_image, user_input)
+                break  # Use only the first image per page
+
+    for original, result, name in results:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.image(original, caption="Original")
+        with col2:
+            st.image(result, caption="Result")
+    with open(zip_path, "rb") as zip_file:
+        st.download_button(
+            label="Download Processed Images",
+            data=zip_file,
+            file_name="output_images.zip",
+            mime="application/zip"
+        )
+    if len(results) > 1:
+        download_zip(results)
+    else:
+        download_result(results[0])
+
+def slide_detection(original_image, user_input):
+    """Removes the background from an image."""
+    original_image_cv = np.array(original_image)
+    gray_image = cv2.cvtColor(original_image_cv, cv2.COLOR_RGB2GRAY)
+    retval, binary_image = cv2.threshold(gray_image, 50, 255, cv2.THRESH_BINARY)
+    _, im_with_separated_blobs, stats, centroids = cv2.connectedComponentsWithStats(binary_image)
+    ht, wd = binary_image.shape
+    #print(binary_image)
+    flag = 0
+    if binary_image[ht-100][100] == 0:
+        inverted_image = cv2.bitwise_not(original_image_cv)
+        inverted_gray_image = cv2.cvtColor(inverted_image, cv2.COLOR_RGB2GRAY)
+        kernel = np.ones((11, 11), np.uint8) 
+        dil_image = cv2.dilate(binary_image, kernel, iterations=5)
+        flag = 1
+    else:
+        inverted_image = original_image_cv
+        inverted_gray_image = gray_image
+        kernel = np.ones((11, 11), np.uint8) 
+        retval, binary_image = cv2.threshold(gray_image, 200, 255, cv2.THRESH_BINARY)
+        binary_image1 = 255 - binary_image
+        dil_image = cv2.dilate(binary_image1, kernel, iterations=5)
+
+    cropped = dil_image[int(ht/2-200):int(ht/2+200),:]  # Example cropping (adjust coordinates)
+    _, _, stats_dil, _ = cv2.connectedComponentsWithStats(cropped)
+    sorted_indices = np.argsort(stats_dil[:, 4])[::-1] 
+    st_col1 = stats_dil[sorted_indices[1],0]
+    end_col1 = stats_dil[sorted_indices[1],0] + stats_dil[sorted_indices[1],2]
+    st_col2 =  None
+    for i in sorted_indices:
+        if i < 2:
+            continue
+        elif stats_dil[sorted_indices[i],2] > 100 and (stats_dil[sorted_indices[i],0] > end_col1 or stats_dil[sorted_indices[i],0]+stats_dil[sorted_indices[i],2] < st_col1):
+            st_col2 = stats_dil[sorted_indices[i],0] 
+            end_col2 = stats_dil[sorted_indices[i],0]  + stats_dil[sorted_indices[i],2] 
+    centrss1 = []
+    centrss2 = []
+    min_size = 20
+    max_size = 1000
+    valid_labels = np.where((stats[:, cv2.CC_STAT_AREA] >= min_size) & (stats[:, cv2.CC_STAT_AREA] <= max_size))[0]
+
+    blurred = cv2.GaussianBlur(inverted_gray_image, (13,13), 11)
+
+    # Detect circles using Hough Circle Transform
+    circles = cv2.HoughCircles(
+        blurred,
+        cv2.HOUGH_GRADIENT,
+        dp=1.2,
+        minDist=20,
+        param1=40,
+        param2=30,
+        minRadius=20,
+        maxRadius=50
+    )
+   
+    output_image = original_image_cv.copy()
+    original_image_cv = cv2.cvtColor(original_image_cv, cv2.COLOR_RGB2BGR) 
+    #print(circles)
+    h1, w1, r1 = original_image_cv.shape
+    if circles is not None:
+        circles = np.uint16(np.around(circles))
+        for (x, y, r) in circles[0, :]:
+            mask = np.zeros(output_image.shape[:2], dtype=np.uint8)
+            cv2.circle(mask, (x, y), r, (255,), thickness=-1)
+            # Compute mean pixel color inside the circle
+            mean_color = cv2.mean(inverted_gray_image, mask=mask)  # Returns (B, G, R, Alpha)
+            if mean_color[0] > 200:
+                #cv2.circle(original_image_cv, (x, y), r, (255,), thickness=-1)
+                if x < w1/2:
+                    centrss1.append((x, y))
+                else:
+                    centrss2.append((x, y))
+        circle_centers, approx_most_common_diff = slide_extract(centrss1, original_image_cv)
+        xs = ys = 0
+        ind = int(user_input)
+        p11 = 0
+        p11_bkp = 0
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as zip_file:
+            for centr in circle_centers:        
+                if xs == 0 and ys == 0:
+                    xs, ys = centr
+                    continue
+                else:
+                    xc, yc = centr
+                    h = int((yc - ys) / 2)
+                    if h>30:
+                        if h <= int(approx_most_common_diff) + 6:             
+                            p11 = yc - h
+                            croppe = original_image_cv[int(p11_bkp):int(p11),st_col1:end_col1]
+                            p11_bkp = p11
+                            #cv2.imwrite(f"fcomp_{ind}.jpg", croppe)
+                            buffer = io.BytesIO()
+                            Image.fromarray(croppe).save(buffer, format="PNG")
+                            zip_file.writestr(f"fslide_{ind}.png", buffer.getvalue())
+                            ind = ind + 1
+                            cv2.line(original_image_cv, (0, int(p11)), (int(w1/3), int(p11)), (255, 0, 0), 8)
+                            xs, ys = xc, yc
+                        else:  
+                            p11 = ys + int(approx_most_common_diff)
+                            cv2.line(original_image_cv, (0, int(p11)), (int(w1/3), int(p11)), (255, 0, 0), 8)
+                            p12 = yc - int(approx_most_common_diff)
+                            croppe = original_image_cv[int(p11):int(p12),st_col1:end_col1]
+                            #cv2.imwrite(f"fcomp_{ind}.jpg", croppe)
+                            buffer = io.BytesIO()
+                            Image.fromarray(croppe).save(buffer, format="PNG")
+                            zip_file.writestr(f"fslide_{ind}.png", buffer.getvalue())
+                            ind = ind + 1
+                            cv2.line(original_image_cv, (0, int(p12)), (int(w1/3), int(p12)), (0, 0, 255), 8)
+                            xs, ys = xc, yc
+
+            circle_centers, approx_most_common_diff = slide_extract(centrss2, original_image_cv)
+            xs = ys = 0        
+            p11 = 0
+            p11_bkp = 0
+            for centr in circle_centers:        
+                if xs == 0 and ys == 0:
+                    xs, ys = centr
+                    continue
+                else:
+                    xc, yc = centr
+                    h = int((yc - ys) / 2)
+                    if h>30:
+                        if h <= int(approx_most_common_diff) + 6:             
+                            p11 = yc - h
+                            pt2 = int(wd - 5)
+                            cv2.line(original_image_cv, (int(w1/2), int(p11)), (pt2, int(p11)), (0, 255, 0), 8)
+                            xs, ys = xc, yc
+                            if st_col2 is not None:
+                                croppe = original_image_cv[int(p11_bkp):int(p11), st_col2:end_col2]
+                                p11_bkp = p11
+                                #cv2.imwrite(f"bcomp_{ind}.jpg", croppe)
+                                buffer = io.BytesIO()
+                                Image.fromarray(croppe).save(buffer, format="PNG")
+                                zip_file.writestr(f"fslide_{ind}.png", buffer.getvalue())
+                                ind = ind + 1
+                        else:  
+                            p11 = ys + int(approx_most_common_diff)
+                            pt2 = int(wd - 5)
+                            cv2.line(original_image_cv, (int(w1/2), int(p11)), (pt2, int(p11)), (0, 255, 0), 8)
+                            p12 = yc - int(approx_most_common_diff)
+                            cv2.line(original_image_cv, (int(w1/2), int(p12)), (pt2, int(p12)), (0, 0, 255), 8)
+                            xs, ys = xc, yc
+                            if st_col2 is not None:
+                                croppe = original_image_cv[ int(p11):int(p12),st_col2:end_col2]
+                                #cv2.imwrite(f"bcomp_{ind}.jpg", croppe)
+                                buffer = io.BytesIO()
+                                Image.fromarray(croppe).save(buffer, format="PNG")
+                                zip_file.writestr(f"fslide_{ind}.png", buffer.getvalue())
+                                ind = ind + 1
+    zip_buffer.seek(0)
+    st.download_button(
+        label="Download All Slides 🔥",
+        data=zip_buffer,
+        file_name="slides.zip",
+        mime="application/zip"
+    )
+    output_image = Image.fromarray(original_image_cv)
+    return output_image
+
+def slide_extract(centrss, original_image_cv):
+    circle_centers = sorted(centrss, key=lambda x: x[1])
+    avg_height = [circle_centers[i][1] - circle_centers[i-1][1] for i in range(1, len(circle_centers))]
+    num_bins = 2
+    hist, bin_edges = np.histogram(avg_height, bins=num_bins)
+    max_bin_idx = np.argmax(hist)
+    approx_most_common_diff = (bin_edges[max_bin_idx] + bin_edges[max_bin_idx + 1]) / 2
+    return circle_centers, approx_most_common_diff
+
+def img_to_bytes(img):
+    """Converts an Image object to bytes."""
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+def process_and_display_images(uploaded_files, user_input):
+    """Processes the uploaded files and displays the original and result images."""
+    if not uploaded_files:
+        st.warning("Please upload a file.")
+        return
+
+    if not st.sidebar.button("Slide Detection by AI"):
+        return
+
+    if len(uploaded_files) > MAX_FILES:
+        st.warning(f"Maximum {MAX_FILES} files will be processed.")
+        uploaded_files = uploaded_files[:MAX_FILES]
+    results = []
+
+    with st.spinner("Detecting Slides..."):
+        for uploaded_file in uploaded_files:
+            doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
+            page = doc[0]
+            for img_index, img in enumerate(page.get_images(full=True)):
+                xref = img[0]  # Reference to the image
+                base_image = doc.extract_image(xref)
+                image_bytes = base_image["image"]
+                original_image = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+                result_image = slide_detection(original_image, user_input)
+                results.append((original_image, result_image, uploaded_file.name))
                 break  # Use only the first image per page
 
     for original, result, name in results:
@@ -168,7 +389,7 @@ def process_and_display_images(uploaded_files, user_input):
     else:
         download_result(results[0])
 
-def slide_detection(original_image, user_input):
+def slide_detection_cutout(original_image, user_input):
     """Removes the background from an image."""
     original_image_cv = np.array(original_image)
     gray_image = cv2.cvtColor(original_image_cv, cv2.COLOR_RGB2GRAY)
@@ -304,24 +525,11 @@ def slide_detection(original_image, user_input):
                             croppe = original_image_cv[ int(p11):int(p12),st_col2:end_col2]
                             cv2.imwrite(f"bcomp_{ind}.jpg", croppe)
                             ind = ind + 1
-
-    output_image = Image.fromarray(original_image_cv)
-    return output_image
-
-def slide_extract(centrss, original_image_cv):
-    circle_centers = sorted(centrss, key=lambda x: x[1])
-    avg_height = [circle_centers[i][1] - circle_centers[i-1][1] for i in range(1, len(circle_centers))]
-    num_bins = 2
-    hist, bin_edges = np.histogram(avg_height, bins=num_bins)
-    max_bin_idx = np.argmax(hist)
-    approx_most_common_diff = (bin_edges[max_bin_idx] + bin_edges[max_bin_idx + 1]) / 2
-    return circle_centers, approx_most_common_diff
-
-def img_to_bytes(img):
-    """Converts an Image object to bytes."""
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
+    
+    zip_filename = "output_images.zip"
+    output_dir="results_output"
+    shutil.make_archive("output_images", "zip", output_dir)
+    return zip_filename
 
 def download_result(image):
     """Allows the user to download the result image."""
